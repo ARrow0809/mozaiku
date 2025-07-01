@@ -1,0 +1,1275 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高機能 自動モザイクツール</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --primary-surface-color: #2c2c2c;
+            --secondary-surface-color: #383838;
+            --text-color: #e0e0e0;
+            --text-secondary-color: #a0a0a0;
+            --accent-color: #007bff;
+            --accent-hover-color: #0056b3;
+            --border-color: #444;
+            --danger-color: #dc3545;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+        }
+        .container { display: flex; height: 100vh; }
+        .left-panel {
+            width: 400px;
+            background-color: var(--primary-surface-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1em;
+            box-sizing: border-box;
+        }
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 2em;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 1em;
+            background-color: var(--bg-color);
+            transition: border-color 0.2s;
+        }
+        .upload-area.dragover { border-color: var(--accent-color); }
+        .thumbnail-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 1em;
+            padding-right: 10px; /* for scrollbar */
+        }
+        .thumbnail {
+            position: relative;
+            cursor: pointer;
+        }
+        .thumbnail img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .thumbnail.selected img { border-color: var(--accent-color); }
+        .thumbnail.multi-selected img { border-color: #28a745; border-width: 3px; }
+        .thumbnail .delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(220, 53, 69, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .thumbnail:hover .delete-btn { opacity: 1; }
+        .right-panel { flex-grow: 1; padding: 2em; display: flex; flex-direction: column; }
+        .preview-area {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: var(--primary-surface-color);
+            border-radius: 8px;
+            margin-bottom: 2em;
+            position: relative;
+            min-height: 250px;
+        }
+        .preview-area img { 
+            max-width: var(--preview-size, 150px); 
+            max-height: var(--preview-size, 150px); 
+            border-radius: 4px; 
+            cursor: pointer;
+            transition: all 0.3s ease;
+            object-fit: contain;
+        }
+        .preview-area img.fixed-size {
+            max-width: var(--preview-size, 150px) !important; 
+            max-height: var(--preview-size, 150px) !important;
+            transition: none;
+        }
+        .preview-area img:hover { transform: scale(1.05); }
+        .preview-area img.fixed-size:hover { transform: none; }
+        .preview-area img.enlarged { 
+            max-width: 90%; 
+            max-height: 80vh; 
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            /* プレビューサイズの制限を無効化 */
+            max-width: 90% !important;
+            max-height: 80vh !important;
+        }
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #ff0000;
+            background: rgba(255, 0, 0, 0.1);
+            pointer-events: none;
+            z-index: 10;
+        }
+        .brush-stroke {
+            position: absolute;
+            background: rgba(255, 0, 0, 0.3);
+            border: 1px solid #ff0000;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .brush-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .manual-mosaic-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            padding: 8px;
+            border-radius: 5px;
+            display: none;
+            width: 120px;
+        }
+        .manual-mosaic-controls button {
+            margin: 2px;
+            padding: 5px 8px;
+            font-size: 11px;
+            min-width: auto;
+            display: block;
+            width: 100%;
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 999;
+            display: none;
+        }
+        .preview-area .placeholder { color: var(--text-secondary-color); }
+        .settings-panel { background-color: var(--primary-surface-color); border-radius: 8px; padding: 1.5em; }
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5em;
+            margin-bottom: 1.5em;
+        }
+        .control-group label { font-weight: 600; display: block; margin-bottom: 0.5em; }
+        .control-group select, .control-group input { 
+            width: 100%; 
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            box-sizing: border-box;
+        }
+        .action-bar { padding-top: 1em; text-align: center; position: relative; }
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 12px 16px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            min-width: 140px;
+            flex: 1;
+        }
+        button:hover:not(:disabled) { background-color: var(--accent-hover-color); }
+        button:disabled { background-color: #555; color: #999; cursor: not-allowed; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+        button.loading .btn-text { visibility: hidden; }
+        button.loading .loader { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="left-panel">
+            <div id="uploadArea" class="upload-area">
+                <p>ここに画像をドラッグ＆ドロップ<br>またはクリックして選択</p>
+                <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+            </div>
+            <div id="thumbnailList" class="thumbnail-list"></div>
+        </div>
+        <div class="right-panel">
+            <div id="previewArea" class="preview-area">
+                <p class="placeholder">画像を選択してプレビュー</p>
+                <img id="previewImage" style="display:none;">
+                <div id="manualMosaicControls" class="manual-mosaic-controls">
+                    <div style="color: white; font-size: 12px; margin-bottom: 5px;">手動モザイク</div>
+                    <button id="enableManualMosaic" style="background-color: #28a745;">範囲選択モード</button>
+                    <button id="enableBrushMode" style="background-color: #ff6b35;">ブラシモード</button>
+                    <div id="brushSizeControl" style="display: none; margin: 5px 0;">
+                        <label style="color: white; font-size: 10px;">サイズ: <span id="brushSizeValue">20</span></label>
+                        <input type="range" id="brushSizeSlider" min="5" max="50" value="20" style="width: 100%;">
+                    </div>
+                    <button id="applyManualMosaic" style="background-color: #007bff;">適用</button>
+                    <button id="clearSelection" style="background-color: #dc3545;">選択クリア</button>
+                    <button id="resetToOriginal" style="background-color: #6c757d;">元画像に戻す</button>
+                </div>
+                <div id="previewControls" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; display: none;">
+                    <label style="color: white; font-size: 12px; margin-bottom: 5px; display: block;">
+                        プレビューサイズ: <span id="previewSizeValue">150</span>px
+                    </label>
+                    <input type="range" id="previewSizeSlider" min="100" max="500" step="25" value="150" 
+                           style="width: 120px; margin: 0;">
+                </div>
+            </div>
+            <div class="settings-panel">
+                <div class="control-grid">
+                    <div class="control-group">
+                        <label for="processType">処理方法 (検出対象: 局部のみ)</label>
+                        <select id="processType">
+                            <option value="mosaic" selected>モザイク</option>
+                            <option value="blur">ぼかし</option>
+                            <option value="white">白塗り</option>
+                            <option value="raw">処理しない</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="confidence">信頼度閾値: <span id="confidenceValue">0.50</span></label>
+                        <input type="range" id="confidence" min="0.1" max="0.9" step="0.05" value="0.5">
+                    </div>
+                    <div class="control-group" id="mosaicParams">
+                        <label for="blockSize">モザイクの粗さ: <span id="blockSizeValue">16</span></label>
+                        <input type="range" id="blockSize" min="4" max="64" step="4" value="16">
+                    </div>
+                    <div class="control-group" id="blurParams" style="display: none;">
+                        <label for="blurRadius">ぼかしの半径: <span id="blurRadiusValue">21</span></label>
+                        <input type="range" id="blurRadius" min="3" max="81" step="2" value="21">
+                    </div>
+                </div>
+                <div class="action-bar">
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+                        <button id="convertButton">
+                            <span class="btn-text">選択した画像を処理</span>
+                            <div class="loader"></div>
+                        </button>
+                        <button id="convertAllButton" style="background-color: #28a745;">
+                            <span class="btn-text">すべての画像を処理</span>
+                            <div class="loader"></div>
+                        </button>
+                        <button id="downloadButton" style="background-color: #17a2b8;">
+                            <span class="btn-text">選択した画像をダウンロード</span>
+                        </button>
+                        <button id="downloadAllButton" style="background-color: #6f42c1;">
+                            <span class="btn-text">すべてダウンロード</span>
+                        </button>
+                        <button id="clearButton" style="background-color: #dc3545;">
+                            <span class="btn-text">クリア</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="overlay" class="overlay"></div>
+
+    <script>
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const thumbnailList = document.getElementById('thumbnailList');
+        const previewArea = document.getElementById('previewArea');
+        const previewImage = document.getElementById('previewImage');
+        const previewPlaceholder = previewArea.querySelector('.placeholder');
+        const previewControls = document.getElementById('previewControls');
+        const previewSizeSlider = document.getElementById('previewSizeSlider');
+        const previewSizeValue = document.getElementById('previewSizeValue');
+        const convertButton = document.getElementById('convertButton');
+        const convertAllButton = document.getElementById('convertAllButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const downloadAllButton = document.getElementById('downloadAllButton');
+        const clearButton = document.getElementById('clearButton');
+        const overlay = document.getElementById('overlay');
+        const processTypeSelect = document.getElementById('processType');
+        const confidenceSlider = document.getElementById('confidence');
+        const blockSizeSlider = document.getElementById('blockSize');
+        const blurRadiusSlider = document.getElementById('blurRadius');
+        const confidenceValue = document.getElementById('confidenceValue');
+        const blockSizeValue = document.getElementById('blockSizeValue');
+        const blurRadiusValue = document.getElementById('blurRadiusValue');
+        const mosaicParams = document.getElementById('mosaicParams');
+        const blurParams = document.getElementById('blurParams');
+        
+        // 手動モザイク関連
+        const manualMosaicControls = document.getElementById('manualMosaicControls');
+        const enableManualMosaicBtn = document.getElementById('enableManualMosaic');
+        const enableBrushModeBtn = document.getElementById('enableBrushMode');
+        const brushSizeControl = document.getElementById('brushSizeControl');
+        const brushSizeSlider = document.getElementById('brushSizeSlider');
+        const brushSizeValue = document.getElementById('brushSizeValue');
+        const applyManualMosaicBtn = document.getElementById('applyManualMosaic');
+        const clearSelectionBtn = document.getElementById('clearSelection');
+        const resetToOriginalBtn = document.getElementById('resetToOriginal');
+
+        // State
+        let files = [];
+        let selectedFileIds = []; // 複数選択対応
+        
+        // 手動モザイク機能の状態
+        let isManualMosaicMode = false;
+        let isBrushMode = false;
+        let isSelecting = false;
+        let isBrushing = false;
+        let selectionStart = { x: 0, y: 0 };
+        let selectionBoxes = [];
+        let brushStrokes = [];
+        let currentBrushStroke = []; // 現在のブラシストローク
+        let currentSelectionBox = null;
+        let brushCanvas = null;
+        let lastBrushPos = null;
+
+        // Event Listeners
+        uploadArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+        uploadArea.addEventListener('dragenter', () => uploadArea.classList.add('dragover'));
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+        uploadArea.addEventListener('drop', (e) => {
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        confidenceSlider.oninput = () => confidenceValue.textContent = parseFloat(confidenceSlider.value).toFixed(2);
+        blockSizeSlider.oninput = () => blockSizeValue.textContent = blockSizeSlider.value;
+        blurRadiusSlider.oninput = () => blurRadiusValue.textContent = blurRadiusSlider.value;
+        previewSizeSlider.oninput = () => {
+            const size = previewSizeSlider.value;
+            previewSizeValue.textContent = size;
+            document.documentElement.style.setProperty('--preview-size', size + 'px');
+        };
+        processTypeSelect.onchange = () => {
+            mosaicParams.style.display = processTypeSelect.value === 'mosaic' ? 'block' : 'none';
+            blurParams.style.display = processTypeSelect.value === 'blur' ? 'block' : 'none';
+        };
+
+        convertButton.addEventListener('click', processSelectedFile);
+        convertAllButton.addEventListener('click', processAllFiles);
+        downloadButton.addEventListener('click', downloadSelectedFile);
+        downloadAllButton.addEventListener('click', downloadAllFiles);
+        clearButton.addEventListener('click', clearAllFiles);
+        
+        // プレビュー画像のクリックイベント
+        previewImage.addEventListener('click', toggleImageSize);
+        overlay.addEventListener('click', closeEnlargedImage);
+        
+        // 手動モザイク機能のイベントリスナー
+        enableManualMosaicBtn.addEventListener('click', toggleManualMosaicMode);
+        enableBrushModeBtn.addEventListener('click', toggleBrushMode);
+        brushSizeSlider.addEventListener('input', updateBrushSize);
+        applyManualMosaicBtn.addEventListener('click', applyManualMosaic);
+        clearSelectionBtn.addEventListener('click', clearSelections);
+        resetToOriginalBtn.addEventListener('click', resetToOriginal);
+        
+        // プレビューエリアでのマウスイベント
+        previewArea.addEventListener('mousedown', startDrawing);
+        previewArea.addEventListener('mousemove', updateDrawing);
+        previewArea.addEventListener('mouseup', endDrawing);
+        previewArea.addEventListener('mouseleave', endDrawing);
+        
+        // キーボードナビゲーション
+        document.addEventListener('keydown', handleKeyNavigation);
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function handleFiles(newFiles) {
+            [...newFiles].forEach(file => {
+                if (!file.type.startsWith('image/')) return;
+                const fileId = Date.now() + '-' + Math.random();
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    files.push({ id: fileId, file: file, previewUrl: e.target.result, processedUrl: null });
+                    renderThumbnails();
+                    if (files.length === 1) {
+                        selectedFileIds = [fileId];
+                        updatePreview();
+                        renderThumbnails();
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function renderThumbnails() {
+            thumbnailList.innerHTML = '';
+            files.forEach((file, index) => {
+                const thumbDiv = document.createElement('div');
+                thumbDiv.className = 'thumbnail';
+                
+                // 複数選択の表示
+                if (selectedFileIds.includes(file.id)) {
+                    if (selectedFileIds.length > 1) {
+                        thumbDiv.classList.add('multi-selected');
+                    } else {
+                        thumbDiv.classList.add('selected');
+                    }
+                }
+                
+                thumbDiv.innerHTML = `
+                    <img src="${file.processedUrl || file.previewUrl}" alt="${file.file.name}">
+                    <button class="delete-btn" data-id="${file.id}">&times;</button>
+                `;
+                thumbDiv.addEventListener('click', (e) => selectFile(file.id, e, index));
+                thumbnailList.appendChild(thumbDiv);
+            });
+            
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteFile(e.target.dataset.id);
+                });
+            });
+        }
+        
+        function deleteFile(fileId) {
+            files = files.filter(f => f.id != fileId);
+            selectedFileIds = selectedFileIds.filter(id => id !== fileId);
+            
+            // プレビューの更新
+            if (selectedFileIds.length > 0) {
+                updatePreview();
+            } else {
+                previewImage.style.display = 'none';
+                previewPlaceholder.style.display = 'block';
+                previewControls.style.display = 'none';
+                manualMosaicControls.style.display = 'none';
+                clearSelections();
+            }
+            renderThumbnails();
+        }
+
+        function selectFile(fileId, event, index) {
+            if (event.ctrlKey || event.metaKey) {
+                // Ctrl/Cmd + クリック: 個別選択/解除
+                if (selectedFileIds.includes(fileId)) {
+                    selectedFileIds = selectedFileIds.filter(id => id !== fileId);
+                } else {
+                    selectedFileIds.push(fileId);
+                }
+            } else if (event.shiftKey && selectedFileIds.length > 0) {
+                // Shift + クリック: 範囲選択
+                const lastSelectedIndex = files.findIndex(f => f.id === selectedFileIds[selectedFileIds.length - 1]);
+                const start = Math.min(lastSelectedIndex, index);
+                const end = Math.max(lastSelectedIndex, index);
+                
+                selectedFileIds = [];
+                for (let i = start; i <= end; i++) {
+                    selectedFileIds.push(files[i].id);
+                }
+            } else {
+                // 通常のクリック: 単一選択
+                selectedFileIds = [fileId];
+            }
+            
+            updatePreview();
+            renderThumbnails();
+        }
+        
+        function updatePreview() {
+            if (selectedFileIds.length === 1) {
+                const file = files.find(f => f.id === selectedFileIds[0]);
+                if (file) {
+                    previewImage.src = file.processedUrl || file.previewUrl;
+                    previewImage.style.display = 'block';
+                    previewPlaceholder.style.display = 'none';
+                    previewControls.style.display = 'block';
+                    manualMosaicControls.style.display = 'block';
+                    
+                    // モザイクモードまたはブラシモード時は固定サイズを維持
+                    if (isManualMosaicMode || isBrushMode) {
+                        previewImage.classList.add('fixed-size');
+                    }
+                    
+                    // ブラシキャンバスを更新
+                    if (isBrushMode) {
+                        setTimeout(() => createBrushCanvas(), 100);
+                    }
+                }
+            } else if (selectedFileIds.length > 1) {
+                previewImage.style.display = 'none';
+                previewPlaceholder.style.display = 'block';
+                previewPlaceholder.textContent = `${selectedFileIds.length}枚の画像を選択中`;
+                previewControls.style.display = 'none';
+                manualMosaicControls.style.display = 'none';
+                removeBrushCanvas();
+            } else {
+                previewImage.style.display = 'none';
+                previewPlaceholder.style.display = 'block';
+                previewPlaceholder.textContent = '画像を選択してプレビュー';
+                previewControls.style.display = 'none';
+                manualMosaicControls.style.display = 'none';
+                removeBrushCanvas();
+            }
+        }
+        
+        async function processSelectedFile() {
+            if (selectedFileIds.length === 0) {
+                alert('処理する画像を選択してください。');
+                return;
+            }
+            
+            convertButton.classList.add('loading');
+            convertButton.disabled = true;
+            
+            let processedCount = 0;
+            let totalFiles = selectedFileIds.length;
+            
+            for (let i = 0; i < selectedFileIds.length; i++) {
+                const fileToProcess = files.find(f => f.id === selectedFileIds[i]);
+                if (!fileToProcess) continue;
+
+                const formData = new FormData();
+                formData.append('file', fileToProcess.file);
+                formData.append('process_type', processTypeSelect.value);
+                formData.append('confidence', confidenceSlider.value);
+                formData.append('block_size', blockSizeSlider.value);
+                formData.append('blur_radius', blurRadiusSlider.value);
+
+                try {
+                    const response = await fetch('/api/process', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    
+                    const imageBlob = await response.blob();
+                    const imageUrl = URL.createObjectURL(imageBlob);
+                    
+                    fileToProcess.processedUrl = imageUrl;
+                    processedCount++;
+                    
+                    // プログレス表示を更新
+                    if (totalFiles > 1) {
+                        convertButton.querySelector('.btn-text').textContent = 
+                            `処理中... (${processedCount}/${totalFiles})`;
+                    }
+                    
+                    updatePreview();
+                    renderThumbnails();
+                    
+                } catch (error) {
+                    console.error(`ファイル ${fileToProcess.file.name} の処理に失敗:`, error);
+                }
+            }
+            
+            convertButton.classList.remove('loading');
+            convertButton.disabled = false;
+            convertButton.querySelector('.btn-text').textContent = '選択した画像を処理';
+        }
+        
+        function toggleImageSize(e) {
+            // 手動モザイクモードまたはブラシモードの時は拡大表示しない
+            if (isManualMosaicMode || isBrushMode) {
+                e.stopPropagation();
+                return;
+            }
+            
+            if (previewImage.classList.contains('enlarged')) {
+                closeEnlargedImage();
+            } else {
+                previewImage.classList.add('enlarged');
+                overlay.style.display = 'block';
+            }
+        }
+        
+        function closeEnlargedImage() {
+            previewImage.classList.remove('enlarged');
+            overlay.style.display = 'none';
+        }
+        
+        async function processAllFiles() {
+            if (files.length === 0) {
+                alert('処理する画像がありません。');
+                return;
+            }
+            
+            convertAllButton.classList.add('loading');
+            convertAllButton.disabled = true;
+            
+            let processedCount = 0;
+            let totalFiles = files.length;
+            
+            for (let i = 0; i < files.length; i++) {
+                const fileToProcess = files[i];
+                
+                // 既に処理済みの場合はスキップ
+                if (fileToProcess.processedUrl) {
+                    processedCount++;
+                    continue;
+                }
+                
+                const formData = new FormData();
+                formData.append('file', fileToProcess.file);
+                formData.append('process_type', processTypeSelect.value);
+                formData.append('confidence', confidenceSlider.value);
+                formData.append('block_size', blockSizeSlider.value);
+                formData.append('blur_radius', blurRadiusSlider.value);
+
+                try {
+                    const response = await fetch('/api/process', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                    
+                    const imageBlob = await response.blob();
+                    const imageUrl = URL.createObjectURL(imageBlob);
+                    
+                    fileToProcess.processedUrl = imageUrl;
+                    processedCount++;
+                    
+                    // プログレス表示を更新
+                    convertAllButton.querySelector('.btn-text').textContent = 
+                        `処理中... (${processedCount}/${totalFiles})`;
+                    
+                    // 現在選択中の画像が処理された場合、プレビューを更新
+                    if (selectedFileIds.includes(fileToProcess.id)) {
+                        updatePreview();
+                    }
+                    
+                    renderThumbnails();
+                    
+                } catch (error) {
+                    console.error(`ファイル ${fileToProcess.file.name} の処理に失敗:`, error);
+                }
+            }
+            
+            convertAllButton.classList.remove('loading');
+            convertAllButton.disabled = false;
+            convertAllButton.querySelector('.btn-text').textContent = 'すべての画像を処理';
+        }
+        
+        async function downloadSelectedFile() {
+            if (selectedFileIds.length === 0) {
+                alert('ダウンロードする画像を選択してください。');
+                return;
+            }
+            
+            let dirHandle = null;
+            
+            // 複数ファイルの場合は最初にフォルダを選択
+            if (selectedFileIds.length > 1 && 'showDirectoryPicker' in window) {
+                try {
+                    dirHandle = await window.showDirectoryPicker();
+                } catch (error) {
+                    // ユーザーがキャンセルした場合は処理を中止
+                    return;
+                }
+            }
+            
+            for (let i = 0; i < selectedFileIds.length; i++) {
+                const fileToDownload = files.find(f => f.id === selectedFileIds[i]);
+                if (!fileToDownload) continue;
+                
+                const imageUrl = fileToDownload.processedUrl || fileToDownload.previewUrl;
+                const fileName = fileToDownload.processedUrl ? 
+                    `processed_${fileToDownload.file.name}` : fileToDownload.file.name;
+                
+                if (dirHandle) {
+                    try {
+                        const response = await fetch(imageUrl);
+                        const blob = await response.blob();
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                    } catch (error) {
+                        console.error(`ファイル ${fileName} の保存に失敗:`, error);
+                    }
+                } else {
+                    // 単一ファイルまたはフォールバック
+                    await downloadImage(imageUrl, fileName);
+                    if (selectedFileIds.length > 1) {
+                        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms間隔
+                    }
+                }
+            }
+            
+        }
+        
+        async function downloadAllFiles() {
+            if (files.length === 0) {
+                alert('ダウンロードする画像がありません。');
+                return;
+            }
+            
+            let dirHandle = null;
+            
+            // フォルダを選択
+            if ('showDirectoryPicker' in window) {
+                try {
+                    dirHandle = await window.showDirectoryPicker();
+                } catch (error) {
+                    // ユーザーがキャンセルした場合は処理を中止
+                    return;
+                }
+            }
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const imageUrl = file.processedUrl || file.previewUrl;
+                const fileName = file.processedUrl ? 
+                    `processed_${file.file.name}` : file.file.name;
+                
+                if (dirHandle) {
+                    try {
+                        const response = await fetch(imageUrl);
+                        const blob = await response.blob();
+                        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                    } catch (error) {
+                        console.error(`ファイル ${fileName} の保存に失敗:`, error);
+                    }
+                } else {
+                    // フォールバック
+                    await downloadImage(imageUrl, fileName);
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 500ms間隔
+                }
+            }
+            
+        }
+        
+        async function downloadImage(imageUrl, fileName) {
+            try {
+                // File System Access API を使用してフォルダ選択
+                if ('showDirectoryPicker' in window) {
+                    const dirHandle = await window.showDirectoryPicker();
+                    const response = await fetch(imageUrl);
+                    const blob = await response.blob();
+                    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                } else {
+                    // フォールバック: 従来のダウンロード方式
+                    const link = document.createElement('a');
+                    link.href = imageUrl;
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            } catch (error) {
+                // ユーザーがキャンセルした場合やエラーの場合は従来の方式
+                const link = document.createElement('a');
+                link.href = imageUrl;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+        
+        function clearAllFiles() {
+            if (files.length === 0) {
+                alert('クリアする画像がありません。');
+                return;
+            }
+            
+            if (confirm('すべての画像をクリアしますか？')) {
+                // メモリリークを防ぐため、作成したURLを解放
+                files.forEach(file => {
+                    if (file.processedUrl) {
+                        URL.revokeObjectURL(file.processedUrl);
+                    }
+                });
+                
+                files = [];
+                selectedFileIds = [];
+                previewImage.style.display = 'none';
+                previewPlaceholder.style.display = 'block';
+                previewPlaceholder.textContent = '画像を選択してプレビュー';
+                previewControls.style.display = 'none';
+                manualMosaicControls.style.display = 'none';
+                clearSelections();
+                renderThumbnails();
+            }
+        }
+        
+        // 手動モザイク機能
+        function toggleManualMosaicMode() {
+            if (isBrushMode) {
+                toggleBrushMode(); // ブラシモードを終了
+            }
+            
+            isManualMosaicMode = !isManualMosaicMode;
+            if (isManualMosaicMode) {
+                enableManualMosaicBtn.textContent = '選択モード終了';
+                enableManualMosaicBtn.style.backgroundColor = '#dc3545';
+                previewArea.style.cursor = 'crosshair';
+                previewImage.classList.add('fixed-size');
+            } else {
+                enableManualMosaicBtn.textContent = '範囲選択モード';
+                enableManualMosaicBtn.style.backgroundColor = '#28a745';
+                previewArea.style.cursor = 'default';
+                previewImage.classList.remove('fixed-size');
+            }
+        }
+        
+        function toggleBrushMode() {
+            if (isManualMosaicMode) {
+                toggleManualMosaicMode(); // 範囲選択モードを終了
+            }
+            
+            isBrushMode = !isBrushMode;
+            if (isBrushMode) {
+                enableBrushModeBtn.textContent = 'ブラシモード終了';
+                enableBrushModeBtn.style.backgroundColor = '#dc3545';
+                brushSizeControl.style.display = 'block';
+                previewArea.style.cursor = 'crosshair';
+                previewImage.classList.add('fixed-size');
+                createBrushCanvas();
+            } else {
+                enableBrushModeBtn.textContent = 'ブラシモード';
+                enableBrushModeBtn.style.backgroundColor = '#ff6b35';
+                brushSizeControl.style.display = 'none';
+                previewArea.style.cursor = 'default';
+                previewImage.classList.remove('fixed-size');
+                removeBrushCanvas();
+            }
+        }
+        
+        function updateBrushSize() {
+            brushSizeValue.textContent = brushSizeSlider.value;
+        }
+        
+        function createBrushCanvas() {
+            if (brushCanvas) return;
+            
+            const imgRect = previewImage.getBoundingClientRect();
+            const previewRect = previewArea.getBoundingClientRect();
+            
+            brushCanvas = document.createElement('canvas');
+            brushCanvas.className = 'brush-canvas';
+            brushCanvas.style.left = (imgRect.left - previewRect.left) + 'px';
+            brushCanvas.style.top = (imgRect.top - previewRect.top) + 'px';
+            brushCanvas.width = imgRect.width;
+            brushCanvas.height = imgRect.height;
+            brushCanvas.style.width = imgRect.width + 'px';
+            brushCanvas.style.height = imgRect.height + 'px';
+            
+            previewArea.appendChild(brushCanvas);
+            
+            // ブラシ位置をリセット
+            lastBrushPos = null;
+            currentBrushStroke = [];
+        }
+        
+        function removeBrushCanvas() {
+            if (brushCanvas && brushCanvas.parentNode) {
+                brushCanvas.parentNode.removeChild(brushCanvas);
+                brushCanvas = null;
+            }
+            lastBrushPos = null;
+            currentBrushStroke = [];
+        }
+        
+        function startDrawing(e) {
+            if ((!isManualMosaicMode && !isBrushMode) || previewImage.style.display === 'none') return;
+            
+            e.preventDefault();
+            
+            if (isBrushMode) {
+                isBrushing = true;
+                lastBrushPos = null; // ブラシ開始時にリセット
+                currentBrushStroke = []; // 新しいストロークを開始
+                drawBrushStroke(e);
+            } else if (isManualMosaicMode) {
+                isSelecting = true;
+                
+                const rect = previewArea.getBoundingClientRect();
+                const imgRect = previewImage.getBoundingClientRect();
+                
+                selectionStart.x = e.clientX - imgRect.left;
+                selectionStart.y = e.clientY - imgRect.top;
+                
+                // 新しい選択ボックスを作成
+                currentSelectionBox = document.createElement('div');
+                currentSelectionBox.className = 'selection-box';
+                currentSelectionBox.style.left = (e.clientX - rect.left) + 'px';
+                currentSelectionBox.style.top = (e.clientY - rect.top) + 'px';
+                currentSelectionBox.style.width = '0px';
+                currentSelectionBox.style.height = '0px';
+                previewArea.appendChild(currentSelectionBox);
+            }
+        }
+        
+        function updateDrawing(e) {
+            if (isBrushMode && isBrushing) {
+                drawBrushStroke(e);
+            } else if (isManualMosaicMode && isSelecting && currentSelectionBox) {
+                const rect = previewArea.getBoundingClientRect();
+                const imgRect = previewImage.getBoundingClientRect();
+                
+                const currentX = e.clientX - imgRect.left;
+                const currentY = e.clientY - imgRect.top;
+                
+                const left = Math.min(selectionStart.x, currentX) + (imgRect.left - rect.left);
+                const top = Math.min(selectionStart.y, currentY) + (imgRect.top - rect.top);
+                const width = Math.abs(currentX - selectionStart.x);
+                const height = Math.abs(currentY - selectionStart.y);
+                
+                currentSelectionBox.style.left = left + 'px';
+                currentSelectionBox.style.top = top + 'px';
+                currentSelectionBox.style.width = width + 'px';
+                currentSelectionBox.style.height = height + 'px';
+            }
+        }
+        
+        function endDrawing(e) {
+            if (isBrushMode) {
+                isBrushing = false;
+                lastBrushPos = null; // ブラシ終了時にリセット
+                
+                // 現在のストロークを保存
+                if (currentBrushStroke.length > 0) {
+                    brushStrokes.push([...currentBrushStroke]);
+                    currentBrushStroke = [];
+                }
+            } else if (isManualMosaicMode && isSelecting && currentSelectionBox) {
+                isSelecting = false;
+                
+                const imgRect = previewImage.getBoundingClientRect();
+                const currentX = e.clientX - imgRect.left;
+                const currentY = e.clientY - imgRect.top;
+                
+                const x = Math.min(selectionStart.x, currentX);
+                const y = Math.min(selectionStart.y, currentY);
+                const width = Math.abs(currentX - selectionStart.x);
+                const height = Math.abs(currentY - selectionStart.y);
+                
+                // 最小サイズチェック
+                if (width < 10 || height < 10) {
+                    previewArea.removeChild(currentSelectionBox);
+                    currentSelectionBox = null;
+                    return;
+                }
+                
+                // 画像の実際のサイズに対する比率を計算
+                const imgNaturalWidth = previewImage.naturalWidth;
+                const imgNaturalHeight = previewImage.naturalHeight;
+                const imgDisplayWidth = previewImage.offsetWidth;
+                const imgDisplayHeight = previewImage.offsetHeight;
+                
+                const scaleX = imgNaturalWidth / imgDisplayWidth;
+                const scaleY = imgNaturalHeight / imgDisplayHeight;
+                
+                // 選択範囲を保存
+                const selection = {
+                    x: Math.round(x * scaleX),
+                    y: Math.round(y * scaleY),
+                    width: Math.round(width * scaleX),
+                    height: Math.round(height * scaleY),
+                    element: currentSelectionBox
+                };
+                
+                selectionBoxes.push(selection);
+                currentSelectionBox = null;
+            }
+        }
+        
+        function drawBrushStroke(e) {
+            if (!brushCanvas) return;
+            
+            const imgRect = previewImage.getBoundingClientRect();
+            const previewRect = previewArea.getBoundingClientRect();
+            
+            const x = e.clientX - imgRect.left;
+            const y = e.clientY - imgRect.top;
+            
+            // 画像範囲内かチェック
+            if (x < 0 || y < 0 || x > imgRect.width || y > imgRect.height) return;
+            
+            const ctx = brushCanvas.getContext('2d');
+            const brushSize = parseInt(brushSizeSlider.value);
+            
+            // 前回の位置がある場合は線で繋ぐ
+            if (lastBrushPos && isBrushing) {
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.lineWidth = brushSize;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(lastBrushPos.x, lastBrushPos.y);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+            
+            // 現在の位置に円を描画
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x, y, brushSize / 2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // ブラシストロークを記録
+            const imgNaturalWidth = previewImage.naturalWidth;
+            const imgNaturalHeight = previewImage.naturalHeight;
+            const imgDisplayWidth = previewImage.offsetWidth;
+            const imgDisplayHeight = previewImage.offsetHeight;
+            
+            const scaleX = imgNaturalWidth / imgDisplayWidth;
+            const scaleY = imgNaturalHeight / imgDisplayHeight;
+            
+            // 現在のストロークに点を追加
+            currentBrushStroke.push({
+                x: Math.round(x * scaleX),
+                y: Math.round(y * scaleY),
+                size: Math.round(brushSize * Math.min(scaleX, scaleY))
+            });
+            
+            // 現在の位置を記録
+            lastBrushPos = { x: x, y: y };
+        }
+        
+        function clearSelections() {
+            // 矩形選択をクリア
+            selectionBoxes.forEach(selection => {
+                if (selection.element && selection.element.parentNode) {
+                    selection.element.parentNode.removeChild(selection.element);
+                }
+            });
+            selectionBoxes = [];
+            
+            if (currentSelectionBox && currentSelectionBox.parentNode) {
+                currentSelectionBox.parentNode.removeChild(currentSelectionBox);
+                currentSelectionBox = null;
+            }
+            
+            // ブラシストロークをクリア
+            brushStrokes = [];
+            currentBrushStroke = [];
+            lastBrushPos = null;
+            if (brushCanvas) {
+                const ctx = brushCanvas.getContext('2d');
+                ctx.clearRect(0, 0, brushCanvas.width, brushCanvas.height);
+            }
+        }
+        
+        async function applyManualMosaic() {
+            if (selectedFileIds.length !== 1 || (selectionBoxes.length === 0 && brushStrokes.length === 0)) {
+                alert('画像を1つ選択し、モザイク範囲を指定してください。');
+                return;
+            }
+            
+            const file = files.find(f => f.id === selectedFileIds[0]);
+            if (!file) return;
+            
+            applyManualMosaicBtn.classList.add('loading');
+            applyManualMosaicBtn.disabled = true;
+            
+            // 選択範囲のデータを準備
+            const mosaicAreas = [];
+            
+            // 矩形選択を追加
+            selectionBoxes.forEach(selection => {
+                mosaicAreas.push({
+                    x: selection.x,
+                    y: selection.y,
+                    width: selection.width,
+                    height: selection.height,
+                    process_type: processTypeSelect.value,
+                    block_size: blockSizeSlider.value,
+                    blur_radius: blurRadiusSlider.value
+                });
+            });
+            
+            // ブラシストロークを追加
+            brushStrokes.forEach(strokeArray => {
+                strokeArray.forEach(stroke => {
+                    mosaicAreas.push({
+                        x: stroke.x,
+                        y: stroke.y,
+                        size: stroke.size,
+                        process_type: processTypeSelect.value,
+                        block_size: blockSizeSlider.value,
+                        blur_radius: blurRadiusSlider.value
+                    });
+                });
+            });
+            
+            const formData = new FormData();
+            // 既に処理済みの画像がある場合はそれを使用、なければ元画像を使用
+            if (file.processedUrl) {
+                // 処理済み画像をBlobに変換してファイルとして送信
+                const response = await fetch(file.processedUrl);
+                const blob = await response.blob();
+                const processedFile = new File([blob], file.file.name, { type: file.file.type });
+                formData.append('file', processedFile);
+            } else {
+                formData.append('file', file.file);
+            }
+            formData.append('mosaic_data', JSON.stringify(mosaicAreas));
+            
+            try {
+                const response = await fetch('/api/manual_mosaic', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+                
+                const imageBlob = await response.blob();
+                const imageUrl = URL.createObjectURL(imageBlob);
+                
+                file.processedUrl = imageUrl;
+                updatePreview();
+                renderThumbnails();
+                clearSelections();
+                
+            } catch (error) {
+                alert('手動モザイク処理に失敗しました: ' + error.message);
+            } finally {
+                applyManualMosaicBtn.classList.remove('loading');
+                applyManualMosaicBtn.disabled = false;
+            }
+        }
+        
+        function resetToOriginal() {
+            if (selectedFileIds.length !== 1) {
+                alert('元画像に戻すには画像を1つ選択してください。');
+                return;
+            }
+            
+            const file = files.find(f => f.id === selectedFileIds[0]);
+            if (!file) return;
+            
+            if (confirm('この画像を元画像に戻しますか？処理済みの内容は失われます。')) {
+                // 処理済みURLを削除
+                if (file.processedUrl) {
+                    URL.revokeObjectURL(file.processedUrl);
+                    file.processedUrl = null;
+                }
+                
+                // 選択範囲もクリア
+                clearSelections();
+                
+                // プレビューと一覧を更新
+                updatePreview();
+                renderThumbnails();
+            }
+        }
+        
+        function handleKeyNavigation(e) {
+            // 入力フィールドにフォーカスがある場合はキーナビゲーションを無効化
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            if (files.length === 0) return;
+            
+            let currentIndex = -1;
+            if (selectedFileIds.length === 1) {
+                currentIndex = files.findIndex(f => f.id === selectedFileIds[0]);
+            }
+            
+            switch (e.key) {
+                case 'ArrowUp':
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    if (currentIndex > 0) {
+                        selectedFileIds = [files[currentIndex - 1].id];
+                        updatePreview();
+                        renderThumbnails();
+                        scrollToThumbnail(currentIndex - 1);
+                    }
+                    break;
+                    
+                case 'ArrowDown':
+                case 'ArrowRight':
+                    e.preventDefault();
+                    if (currentIndex < files.length - 1) {
+                        const nextIndex = currentIndex === -1 ? 0 : currentIndex + 1;
+                        selectedFileIds = [files[nextIndex].id];
+                        updatePreview();
+                        renderThumbnails();
+                        scrollToThumbnail(nextIndex);
+                    }
+                    break;
+                    
+                case 'Home':
+                    e.preventDefault();
+                    if (files.length > 0) {
+                        selectedFileIds = [files[0].id];
+                        updatePreview();
+                        renderThumbnails();
+                        scrollToThumbnail(0);
+                    }
+                    break;
+                    
+                case 'End':
+                    e.preventDefault();
+                    if (files.length > 0) {
+                        selectedFileIds = [files[files.length - 1].id];
+                        updatePreview();
+                        renderThumbnails();
+                        scrollToThumbnail(files.length - 1);
+                    }
+                    break;
+            }
+        }
+        
+        function scrollToThumbnail(index) {
+            const thumbnails = thumbnailList.querySelectorAll('.thumbnail');
+            if (thumbnails[index]) {
+                thumbnails[index].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest'
+                });
+            }
+        }
+
+    </script>
+</body>
+</html>
