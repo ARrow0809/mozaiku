@@ -17,7 +17,11 @@ class ProcessType(str, Enum):
 
 @app.get("/")
 async def read_index():
-    return FileResponse("index.html")
+    return FileResponse("../index.html")
+
+@app.get("/test")
+async def read_test():
+    return FileResponse("test.html")
 
 def apply_mosaic_pil(image, x, y, width, height, block_size=16):
     """PILを使用したモザイク処理"""
@@ -168,4 +172,4 @@ def handler(request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

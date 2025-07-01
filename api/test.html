@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>軽量版Mozaiku - テスト</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .upload-area { border: 2px dashed #ccc; padding: 20px; text-align: center; margin: 20px 0; }
+        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #result { margin-top: 20px; }
+        img { max-width: 100%; height: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>軽量版Mozaiku - テスト</h1>
+        <p>手動モザイク処理のテスト（AI検出なし）</p>
+        
+        <div class="upload-area">
+            <input type="file" id="imageInput" accept="image/*">
+            <p>画像を選択してください</p>
+        </div>
+        
+        <button onclick="testBasicUpload()">基本アップロードテスト</button>
+        <button onclick="testManualMosaic()">手動モザイクテスト</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function testBasicUpload() {
+            const fileInput = document.getElementById('imageInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('画像を選択してください');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('process_type', 'raw');
+            
+            fetch('/api/process', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                document.getElementById('result').innerHTML = 
+                    '<h3>基本アップロード結果:</h3><img src="' + url + '" alt="処理結果">';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = '<p style="color: red;">エラー: ' + error + '</p>';
+            });
+        }
+        
+        function testManualMosaic() {
+            const fileInput = document.getElementById('imageInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('画像を選択してください');
+                return;
+            }
+            
+            // テスト用のモザイク領域データ（画像中央に50x50の矩形）
+            const mosaicData = JSON.stringify([
+                {
+                    x: 100,
+                    y: 100,
+                    width: 100,
+                    height: 100,
+                    process_type: 'mosaic',
+                    block_size: 16
+                }
+            ]);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('mosaic_data', mosaicData);
+            
+            fetch('/api/manual_mosaic', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                document.getElementById('result').innerHTML = 
+                    '<h3>手動モザイク結果:</h3><img src="' + url + '" alt="モザイク処理結果">';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = '<p style="color: red;">エラー: ' + error + '</p>';
+            });
+        }
+    </script>
+</body>
+</html>
