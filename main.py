@@ -279,3 +279,7 @@ async def manual_mosaic(
     
     _, encoded_img = cv2.imencode(".jpg", img)
     return StreamingResponse(io.BytesIO(encoded_img.tobytes()), media_type="image/jpeg")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
