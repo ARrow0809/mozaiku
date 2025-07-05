@@ -45,12 +45,20 @@
             transition: border-color 0.2s;
         }
         .upload-area.dragover { border-color: var(--accent-color); }
+        #imageCounter {
+            padding: 10px;
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 1em;
+        }
         .thumbnail-list {
             flex-grow: 1;
             overflow-y: auto;
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            gap: 1em;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.8em;
             padding-right: 10px; /* for scrollbar */
         }
         .thumbnail {
@@ -85,7 +93,92 @@
             transition: opacity 0.2s;
         }
         .thumbnail:hover .delete-btn { opacity: 1; }
-        .right-panel { flex-grow: 1; padding: 2em; display: flex; flex-direction: column; }
+        .center-panel { flex-grow: 1; padding: 2em; display: flex; flex-direction: column; }
+        .right-selection-panel {
+            width: 180px;
+            background-color: var(--primary-surface-color);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 0.8em;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        .selection-panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 0.8em;
+            padding-bottom: 0.4em;
+            border-bottom: 1px solid var(--border-color);
+            text-align: center;
+        }
+        .selection-count {
+            font-size: 12px;
+            color: var(--text-secondary-color);
+            text-align: center;
+            margin-bottom: 0.8em;
+            padding: 0.3em;
+            background-color: var(--bg-color);
+            border-radius: 4px;
+        }
+        .selection-thumbnail {
+            position: relative;
+            cursor: pointer;
+            margin-bottom: 8px;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            transition: border-color 0.2s;
+        }
+        .selection-thumbnail:hover {
+            border-color: var(--accent-color);
+        }
+        .selection-thumbnail img {
+            width: 100%;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            display: block;
+        }
+        .selection-thumbnail .remove-btn {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .selection-thumbnail:hover .remove-btn {
+            opacity: 1;
+        }
+        .selection-clear-all {
+            margin-top: auto;
+            padding: 0.5em;
+            background-color: var(--danger-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        .selection-clear-all:hover {
+            background-color: #c82333;
+        }
+        .selection-clear-all:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
         .preview-area {
             flex-grow: 1;
             display: flex;
@@ -223,6 +316,26 @@
         }
         button.loading .btn-text { visibility: hidden; }
         button.loading .loader { display: block; }
+        .fanza-regulation-btn {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            padding: 0.5em 1em;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+            min-width: 100px;
+        }
+        .fanza-regulation-btn.active {
+            background-color: #28a745;
+        }
+        .fanza-regulation-btn:hover {
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -232,9 +345,10 @@
                 <p>ここに画像をドラッグ＆ドロップ<br>またはクリックして選択</p>
                 <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
             </div>
+            <div id="imageCounter">表示中の画像: 0枚</div>
             <div id="thumbnailList" class="thumbnail-list"></div>
         </div>
-        <div class="right-panel">
+        <div class="center-panel">
             <div id="previewArea" class="preview-area">
                 <p class="placeholder">画像を選択してプレビュー</p>
                 <img id="previewImage" style="display:none;">
@@ -281,6 +395,12 @@
                         <label for="blurRadius">ぼかしの半径: <span id="blurRadiusValue">21</span></label>
                         <input type="range" id="blurRadius" min="3" max="81" step="2" value="21">
                     </div>
+                    <div class="control-group">
+                        <label>FANZA規定を適用</label>
+                        <button id="fanzaRegulationButton" class="fanza-regulation-btn">
+                            <span class="btn-text">FANZA規定を適用</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="action-bar">
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
@@ -305,6 +425,9 @@
                 </div>
             </div>
         </div>
+        <div id="selectionPanel" class="right-selection-panel">
+            <div class="selection-panel-title">選別枠</div>
+        </div>
     </div>
     <div id="overlay" class="overlay"></div>
 
@@ -313,6 +436,8 @@
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const thumbnailList = document.getElementById('thumbnailList');
+        const imageCounter = document.getElementById('imageCounter');
+        const selectionPanel = document.getElementById('selectionPanel');
         const previewArea = document.getElementById('previewArea');
         const previewImage = document.getElementById('previewImage');
         const previewPlaceholder = previewArea.querySelector('.placeholder');
@@ -334,6 +459,7 @@
         const blurRadiusValue = document.getElementById('blurRadiusValue');
         const mosaicParams = document.getElementById('mosaicParams');
         const blurParams = document.getElementById('blurParams');
+        const fanzaRegulationButton = document.getElementById('fanzaRegulationButton');
         
         // 手動モザイク関連
         const manualMosaicControls = document.getElementById('manualMosaicControls');
@@ -348,7 +474,9 @@
 
         // State
         let files = [];
+        let selectionBoxFiles = [];
         let selectedFileIds = []; // 複数選択対応
+        let isFanzaRegulationActive = false; // FANZA規定の状態
         
         // 手動モザイク機能の状態
         let isManualMosaicMode = false;
@@ -385,10 +513,40 @@
             previewSizeValue.textContent = size;
             document.documentElement.style.setProperty('--preview-size', size + 'px');
         };
-        processTypeSelect.onchange = () => {
-            mosaicParams.style.display = processTypeSelect.value === 'mosaic' ? 'block' : 'none';
+        processTypeSelect.onchange = updateMosaicParamsVisibility;
+        fanzaRegulationButton.onclick = toggleFanzaRegulation;
+
+        function toggleFanzaRegulation() {
+            isFanzaRegulationActive = !isFanzaRegulationActive;
+            if (isFanzaRegulationActive) {
+                fanzaRegulationButton.classList.add('active');
+                fanzaRegulationButton.querySelector('.btn-text').textContent = 'FANZA規定 ON';
+            } else {
+                fanzaRegulationButton.classList.remove('active');
+                fanzaRegulationButton.querySelector('.btn-text').textContent = 'FANZA規定を適用';
+            }
+            updateMosaicParamsVisibility();
+        }
+
+        function updateMosaicParamsVisibility() {
+            const isMosaic = processTypeSelect.value === 'mosaic';
+
+            mosaicParams.style.display = isMosaic ? 'block' : 'none';
             blurParams.style.display = processTypeSelect.value === 'blur' ? 'block' : 'none';
-        };
+
+            // FANZA規定がオンで、かつ処理方法がモザイクの場合、モザイク粗さスライダーを無効化
+            blockSizeSlider.disabled = isFanzaRegulationActive && isMosaic;
+            if (blockSizeSlider.disabled) {
+                blockSizeValue.textContent = '自動';
+            } else {
+                blockSizeValue.textContent = blockSizeSlider.value;
+            }
+        }
+
+        // 初期表示時に一度実行
+        updateMosaicParamsVisibility();
+        renderThumbnails();
+        renderSelectionBox();
 
         convertButton.addEventListener('click', processSelectedFile);
         convertAllButton.addEventListener('click', processAllFiles);
@@ -469,6 +627,44 @@
                     deleteFile(e.target.dataset.id);
                 });
             });
+            imageCounter.textContent = `表示中の画像: ${files.length}枚`;
+        }
+
+        function renderSelectionBox() {
+            selectionPanel.innerHTML = `
+                <div class="selection-panel-title">選別枠</div>
+                <div class="selection-count">選別済み: ${selectionBoxFiles.length}枚</div>
+            `;
+            
+            selectionBoxFiles.forEach((file, index) => {
+                const thumbDiv = document.createElement('div');
+                thumbDiv.className = 'selection-thumbnail';
+                thumbDiv.innerHTML = `
+                    <img src="${file.processedUrl || file.previewUrl}" alt="${file.file.name}" title="${file.file.name}">
+                    <button class="remove-btn" data-index="${index}">&times;</button>
+                `;
+                
+                // クリックで画像をメイン領域に戻す
+                thumbDiv.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('remove-btn')) {
+                        e.stopPropagation();
+                        removeFromSelectionBox(parseInt(e.target.dataset.index));
+                    } else {
+                        returnToMainArea(index);
+                    }
+                });
+                
+                selectionPanel.appendChild(thumbDiv);
+            });
+            
+            // 全クリアボタンを追加
+            if (selectionBoxFiles.length > 0) {
+                const clearAllBtn = document.createElement('button');
+                clearAllBtn.className = 'selection-clear-all';
+                clearAllBtn.textContent = '全て戻す';
+                clearAllBtn.addEventListener('click', clearAllSelectionBox);
+                selectionPanel.appendChild(clearAllBtn);
+            }
         }
         
         function deleteFile(fileId) {
@@ -574,6 +770,7 @@
                 formData.append('confidence', confidenceSlider.value);
                 formData.append('block_size', blockSizeSlider.value);
                 formData.append('blur_radius', blurRadiusSlider.value);
+                formData.append('fanza_regulation', isFanzaRegulationActive);
 
                 try {
                     const response = await fetch('/api/process', {
@@ -654,6 +851,7 @@
                 formData.append('confidence', confidenceSlider.value);
                 formData.append('block_size', blockSizeSlider.value);
                 formData.append('blur_radius', blurRadiusSlider.value);
+                formData.append('fanza_regulation', isFanzaRegulationActive);
 
                 try {
                     const response = await fetch('/api/process', {
@@ -687,6 +885,9 @@
             convertAllButton.classList.remove('loading');
             convertAllButton.disabled = false;
             convertAllButton.querySelector('.btn-text').textContent = 'すべての画像を処理';
+            
+            // 完了メッセージを表示
+            alert(`すべての画像の処理が完了しました！\n処理済み: ${processedCount}/${totalFiles}枚`);
         }
         
         async function downloadSelectedFile() {
@@ -813,20 +1014,26 @@
         }
         
         function clearAllFiles() {
-            if (files.length === 0) {
+            if (files.length === 0 && selectionBoxFiles.length === 0) {
                 alert('クリアする画像がありません。');
                 return;
             }
             
-            if (confirm('すべての画像をクリアしますか？')) {
+            if (confirm('すべての画像をクリアしますか？（選別枠も空になります）')) {
                 // メモリリークを防ぐため、作成したURLを解放
                 files.forEach(file => {
                     if (file.processedUrl) {
                         URL.revokeObjectURL(file.processedUrl);
                     }
                 });
+                selectionBoxFiles.forEach(file => {
+                    if (file.processedUrl) {
+                        URL.revokeObjectURL(file.processedUrl);
+                    }
+                });
                 
                 files = [];
+                selectionBoxFiles = [];
                 selectedFileIds = [];
                 previewImage.style.display = 'none';
                 previewPlaceholder.style.display = 'block';
@@ -835,6 +1042,7 @@
                 manualMosaicControls.style.display = 'none';
                 clearSelections();
                 renderThumbnails();
+                renderSelectionBox();
             }
         }
         
@@ -1207,7 +1415,7 @@
                 return;
             }
             
-            if (files.length === 0) return;
+            if (files.length === 0 && e.key !== '0') return;
             
             let currentIndex = -1;
             if (selectedFileIds.length === 1) {
@@ -1257,6 +1465,64 @@
                         scrollToThumbnail(files.length - 1);
                     }
                     break;
+                case '0':
+                    e.preventDefault();
+                    moveSelectedToSelectionBox();
+                    break;
+            }
+        }
+
+        function moveSelectedToSelectionBox() {
+            if (selectedFileIds.length === 0) return;
+
+            const filesToMove = [];
+            const remainingFiles = [];
+
+            files.forEach(file => {
+                if (selectedFileIds.includes(file.id)) {
+                    filesToMove.push(file);
+                } else {
+                    remainingFiles.push(file);
+                }
+            });
+
+            selectionBoxFiles.push(...filesToMove);
+            files = remainingFiles;
+            selectedFileIds = [];
+
+            renderThumbnails();
+            renderSelectionBox();
+            updatePreview();
+        }
+
+        function removeFromSelectionBox(index) {
+            if (index >= 0 && index < selectionBoxFiles.length) {
+                const fileToReturn = selectionBoxFiles.splice(index, 1)[0];
+                files.push(fileToReturn);
+                renderThumbnails();
+                renderSelectionBox();
+            }
+        }
+
+        function returnToMainArea(index) {
+            if (index >= 0 && index < selectionBoxFiles.length) {
+                const fileToReturn = selectionBoxFiles.splice(index, 1)[0];
+                files.push(fileToReturn);
+                selectedFileIds = [fileToReturn.id];
+                renderThumbnails();
+                renderSelectionBox();
+                updatePreview();
+            }
+        }
+
+        function clearAllSelectionBox() {
+            if (selectionBoxFiles.length === 0) return;
+            
+            if (confirm(`選別枠の${selectionBoxFiles.length}枚の画像をすべてメイン領域に戻しますか？`)) {
+                files.push(...selectionBoxFiles);
+                selectionBoxFiles = [];
+                renderThumbnails();
+                renderSelectionBox();
             }
         }
         

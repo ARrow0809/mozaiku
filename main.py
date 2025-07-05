@@ -92,7 +92,8 @@ async def process_image(
     confidence: float = Form(0.5),
     process_type: ProcessType = Form(ProcessType.mosaic),
     block_size: int = Form(16),
-    blur_radius: int = Form(21) # Must be odd
+    blur_radius: int = Form(21), # Must be odd
+    fanza_regulation: bool = Form(False) # Add this new parameter
 ):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
@@ -163,9 +164,20 @@ async def process_image(
                 h, w, _ = roi.shape
 
                 if h > 0 and w > 0:
+                    # FANZA規定が有効な場合、モザイクサイズを再計算
+                    current_block_size = block_size
+                    if fanza_regulation and process_type == ProcessType.mosaic:
+                        img_height, img_width = img.shape[:2]
+                        long_side = max(img_height, img_width)
+                        if long_side >= 400:
+                            fanza_block_size = max(4, int(long_side / 100))
+                            current_block_size = fanza_block_size
+                        else:
+                            current_block_size = 4 # 400px未満の場合は最低4px
+
                     if process_type == ProcessType.mosaic:
-                        b_h = max(1, h // block_size)
-                        b_w = max(1, w // block_size)
+                        b_h = max(1, h // current_block_size)
+                        b_w = max(1, w // current_block_size)
                         small = cv2.resize(roi, (b_w, b_h), interpolation=cv2.INTER_LINEAR)
                         processed_roi = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
                     elif process_type == ProcessType.blur:
@@ -282,4 +294,4 @@ async def manual_mosaic(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
