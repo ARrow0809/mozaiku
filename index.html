@@ -1477,10 +1477,13 @@
 
             const filesToMove = [];
             const remainingFiles = [];
+            let lastSelectedIndex = -1;
 
-            files.forEach(file => {
+            // 移動する画像の最後のインデックスを記録
+            files.forEach((file, index) => {
                 if (selectedFileIds.includes(file.id)) {
                     filesToMove.push(file);
+                    lastSelectedIndex = Math.max(lastSelectedIndex, index);
                 } else {
                     remainingFiles.push(file);
                 }
@@ -1488,7 +1491,15 @@
 
             selectionBoxFiles.push(...filesToMove);
             files = remainingFiles;
-            selectedFileIds = [];
+
+            // 残った画像から新しい選択を決定
+            if (files.length > 0) {
+                // 移動した画像の前の画像を選択（なければ次の画像）
+                const newSelectedIndex = Math.min(lastSelectedIndex, files.length - 1);
+                selectedFileIds = [files[newSelectedIndex].id];
+            } else {
+                selectedFileIds = [];
+            }
 
             renderThumbnails();
             renderSelectionBox();
